@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 
 from vae import VariationalAutoEncoder, VariationalInference
-from mnist_loader import load_mnist
+from src.mnist_loader import load_mnist
+
 
 from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
@@ -95,7 +96,7 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
 if __name__ == '__main__':
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
+    device = torch.device('cpu')
     # VAE and data parameters
     z_dim = 32
     batch_size = 64
@@ -112,8 +113,9 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(VAE.parameters(), lr=1e-3)
 
     train(mnist, VAE, VI, optimizer, epochs=100, device=device,
-          val_every_epoch=1, store_train_every_epoch=1,
+          val_every_epoch=5, store_train_every_epoch=5,
           tensorboard_logdir='../logs', experiment_name='test_exp')
+
 
 
     # test

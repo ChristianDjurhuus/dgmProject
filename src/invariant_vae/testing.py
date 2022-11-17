@@ -26,7 +26,7 @@ if CUDA:
 
 
 
-mnist_train = torchvision.datasets.MNIST('data', train = True, download=True, transform= ToTensor())
+mnist_train = torchvision.datasets.MNIST('data', train = True, download=True, transform = ToTensor())
 train_loader = torch.utils.data.DataLoader(mnist_train,
                                           batch_size=BATCH_SIZE,
                                           shuffle=True

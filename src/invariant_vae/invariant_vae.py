@@ -117,7 +117,7 @@ class Encoder(Module):
         )
 
     def forward(self, x: torch.Tensor):
-        x = x.unsqueeze(1)
+        #x = x.unsqueeze(1)   #TODO: HVORFOR KOMMENTER DEN HER UD
         #x = torch.nn.functional.pad(x, (0, 1, 0, 1), value=0).unsqueeze(1)
         x = nn.GeometricTensor(x, self.input_type)
 
@@ -134,11 +134,9 @@ class Encoder(Module):
 
         #x = x.tensor.squeeze(-1).squeeze(-1)
         x = x.tensor.mean(dim=(2, 3))
-        
-        print(x.shape)
         x_0, x_1 = x[:, :self.out_dim], x[:, self.out_dim:]
         mu, log_var = x_0[:,:self.out_dim//2], x_0[:,self.out_dim//2:]
-        print("mu, var shapes: ", mu.shape, log_var.shape)
+        #print("mu, var shapes: ", mu.shape, log_var.shape)
         return mu, log_var, x_1
 
 
@@ -226,7 +224,7 @@ class VAE(Module):
         y = self.decoder(z)
         if do_rot:
             y = rot_img(y, rot)
-        return y, rot, z
+        return y, rot, mu, log_var
 
     def reparameterize(self, mu, logvar, inference=False):
         

@@ -39,19 +39,60 @@ class ReparameterizedDiagonalGaussian:
 
 
 class VariationalEncoder(torch.nn.Module):
-    def __init__(self, observation_shape=(28,28), z_dim=32, hidden_dim=128):
+    def __init__(self, observation_shape=(28,28), z_dim=32, hidden_dim=32):
         super(VariationalEncoder, self).__init__()
+
+        self.observation_shape = observation_shape
 
         # Define layers
         self.net = torch.nn.Sequential(
-            torch.nn.Linear(784, hidden_dim),
+            # BLOCK 1
+            torch.nn.Conv2d(1, hidden_dim, kernel_size=7, padding=1),               # (B x hidden_dim x 24 x 24)
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 2*z_dim),
+
+            # BLOCK 2
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=5, padding=2),      # (B x hidden_dim x 24 x 24)
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),
+
+            # BLOCK 3
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=5, padding=2),      # (B x hidden_dim x 24 x 24)
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),
+
+            # BLOCK 4
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=5, padding=2),      # (B x hidden_dim x 24 x 24)
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),
+
+            # BLOCK 5
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=5, padding=2),      # (B x hidden_dim x 24 x 24)
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),
+
+            # BLOCK 6
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=2),      # (B x hidden_dim x 26 x 26)
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),
+
+            # FINAL LAYER
+            torch.nn.Conv2d(hidden_dim, 2*z_dim, kernel_size=1, padding=0),         # (B x 2 * z_dim x 26 x 26)
         )
 
     def forward(self, x):
-        # Parameters for the
+        x = x.view(x.shape[0], 1, *self.observation_shape)      # (B x 1 x 28 x 28)
+
+        # Get latent parameters
         z_params = self.net(x)
+        # Average on spatial dimensions (as stated in the paper)
+        z_params = z_params.mean(dim=(2, 3))                                  # (B x 2 * zdim)
         return z_params.chunk(2, dim=-1)
 
 class Decoder(torch.nn.Module):
@@ -60,16 +101,58 @@ class Decoder(torch.nn.Module):
 
         self.num_vals = num_vals
         self.observation_shape = observation_shape
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(z_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, np.prod(self.observation_shape) * num_vals),
-            torch.nn.Softmax(dim=-1),
-        )
+
+        self.C1 = torch.nn.Sequential(
+            torch.nn.Conv2d(z_dim, hidden_dim, kernel_size=1, padding=0,),
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),)
+
+        self.C2 = torch.nn.Sequential(
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1,),
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),)
+
+        self.C3 = torch.nn.Sequential(
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1, ),
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),)
+
+        self.C4 = torch.nn.Sequential(
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=5, padding=2, ),
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),)
+
+        self.C5 = torch.nn.Sequential(
+            torch.nn.Conv2d(hidden_dim, hidden_dim, kernel_size=5, padding=2, ),
+            torch.nn.BatchNorm2d(hidden_dim),
+            torch.nn.Dropout2d(0.2),
+            torch.nn.ReLU(),)
+
+        self.C6 = torch.nn.Sequential(
+            torch.nn.Conv2d(hidden_dim, 1, kernel_size=1, padding=0),)
 
     def forward(self, z):
-        logits = self.net(z)
-        return logits.view(logits.shape[0], *self.observation_shape, self.num_vals)
+        # expand to 2 x 2 x z_dim as they mention in the paper (formatted correctly to torch.Conv2D
+        z = z.unsqueeze(-1).unsqueeze(-1)
+        z = z.expand(-1, -1, 2, 2) # (B x C x 2 x 2)
+
+        z = self.C1(z)
+        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 4 x 4)
+        z = self.C2(z)
+        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 8 x 8)
+        z = self.C3(z)
+        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 16 x 16)
+        z = self.C4(z)
+        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 32 x 32)
+        z = self.C5(z)
+        z = self.C6(z)
+
+        logits = torch.sigmoid(z[:, :, 2:30, 2:30])
+        return logits
 
 class VariationalAutoEncoder(torch.nn.Module):
     def __init__(self, observation_shape=(28,28), z_dim=32):
@@ -79,7 +162,7 @@ class VariationalAutoEncoder(torch.nn.Module):
         # Setup model components
         self.encoder = VariationalEncoder(observation_shape, z_dim)
         self.decoder = Decoder(observation_shape, z_dim)
-        self.register_buffer('prior_params', torch.zeros(torch.Size([1, 2*z_dim]))) # TODO: why is this?
+        self.register_buffer('prior_params', torch.zeros(torch.Size([1, 2*z_dim]))) # standard gaussian
 
     def posterior(self, x: Tensor):
         # Get latent parameters
@@ -93,8 +176,7 @@ class VariationalAutoEncoder(torch.nn.Module):
         return ReparameterizedDiagonalGaussian(mu, log_sigma)
 
     def observation_model(self, z: Tensor) -> Distribution:
-        px_logits = self.decoder(z)
-        return Categorical(px_logits)
+        return self.decoder(z)
 
     def forward(self, x) -> Dict[str, Any]:
         # change data shape
@@ -144,9 +226,12 @@ class VariationalInference(torch.nn.Module):
         px, pz, qz, z = [outputs[k] for k in ["px", "pz", "qz", "z"]]
 
         # get log-probs to be used in kl and elbo calculation
-        log_px = reduce(px.log_prob(x.view(-1, *model.observation_shape) * 256))
         log_pz = reduce(pz.log_prob(z))
         log_qz = reduce(qz.log_prob(z))
+
+        # compute mse as log_prob og px as we use a gaussian to model the output
+        mse = torch.nn.MSELoss(reduction='none')
+        log_px = -mse(px.flatten(1), x.flatten(1)).mean(axis=1)
 
         # compute the elbo
         kl = log_qz - log_pz
@@ -154,7 +239,7 @@ class VariationalInference(torch.nn.Module):
         beta_elbo = log_px - self.beta * kl
 
         # define the loss function
-        loss = -beta_elbo.mean()
+        loss = -beta_elbo.mean() # or beta_elbo
 
         # setup diagnostics of the inference
         with torch.no_grad():

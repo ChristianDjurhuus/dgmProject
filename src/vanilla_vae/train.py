@@ -2,8 +2,7 @@
 import torch
 import numpy as np
 
-from tqdm import trange, tqdm
-import matplotlib.pyplot as plt
+from tqdm import trange
 from collections import defaultdict
 
 from vae import VariationalAutoEncoder, VariationalInference
@@ -15,7 +14,7 @@ from pathlib import Path
 
 def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
           optimizer: torch.optim.Optimizer, epochs=500, device=torch.device('cpu'),
-          store_train_every_epoch=50, val_every_epoch=50,
+          checkpoint_every=50, val_every_epoch=50,
           experiment_name='', tensorboard_logdir='../logs'):
 
     # Setup tensorboard
@@ -32,6 +31,7 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
             # Initialize training for epoch
             vae.train()
             train_performances_epoch = defaultdict(list)
+            loss_epoch = []
             for batch_id in data['train'].keys():
                 # Define data
                 x = data['train'][batch_id]['data'].to(device)
@@ -39,14 +39,12 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
 
                 # Compute loss
                 loss, diagnostics, outputs = vi(vae, x)
+                loss_epoch.append(loss.item())
 
                 # Backpropagation
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-
-                # Add information to tensorboard
-                writer.add_scalar('TRAIN/Loss', loss, epoch)
 
                 # Gather information from batch
                 for k, v in diagnostics.items():
@@ -56,13 +54,18 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
             for k, v in train_performances_epoch.items():
                 train_performances[k] += [np.mean(train_performances_epoch[k])]
 
+            #if epoch % store_train_every_epoch == 0:
+            # Add information to tensorboard
+            writer.add_scalar('TRAIN/Loss', np.mean(loss_epoch), epoch)
+            writer.add_scalar('TRAIN/elbo', np.mean(train_performances_epoch['elbo']), epoch)
+            writer.add_scalar('TRAIN/log_px', np.mean(train_performances_epoch['log_px']), epoch)
+            writer.add_scalar('TRAIN/kl', np.mean(train_performances_epoch['kl']), epoch)
 
-            if epoch % store_train_every_epoch == 0:
-                # Add information to tensorboard
-                writer.add_scalar('TRAIN/elbo', np.mean(train_performances_epoch['elbo']), epoch)
-                writer.add_scalar('TRAIN/log_px', np.mean(train_performances_epoch['log_px']), epoch)
-                writer.add_scalar('TRAIN/kl', np.mean(train_performances_epoch['kl']), epoch)
-
+            if epoch % checkpoint_every == 0:
+                # Store checkpointed model
+                vae.to(torch.device('cpu'))
+                torch.save(VAE, f"models/{experiment_name}/{epoch}.ckpt")
+                vae.to(device)
 
             if epoch % val_every_epoch == 0:
                 # Evaluate on a single test batch
@@ -87,46 +90,38 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
                         # Add information to tensorboard
                         writer.add_scalar(f'VALIDATION/{k}', v.mean(), epoch)
 
-                    # Print status
-                    t.set_description_str(f'Training ELBO: {train_performances["elbo"][-1]:.3f} \t| \t Validation ELBO: {val_performances["elbo"][-1]:.3f} | Progress')
+            # Print status
+            t.set_description_str(f'Training ELBO: {train_performances["elbo"][-1]:.3f} \t| \t Validation ELBO: {val_performances["elbo"][-1]:.3f} | Progress')
 
     # Close tensorboard
     writer.close()
 
 if __name__ == '__main__':
 
+    import os
+    os.makedirs("models", exist_ok=True)
+
+    # Define name for saving model and performance
+    experiment_name = input("Enter experiment name: ")
+
+    # Setup device
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    device = torch.device('cpu')
-    # VAE and data parameters
-    z_dim = 32
-    batch_size = 64
-    image_shape = (28, 28)
 
     # Load MNIST
-    mnist = load_mnist(batch_size)
+    mnist = load_mnist(data_path="../data", batch_size=64)
 
     # Define VAE and inference object
-    VAE = VariationalAutoEncoder(image_shape, z_dim).to(device)
-    VI = VariationalInference(beta=50)
+    VAE = VariationalAutoEncoder(observation_shape=(28, 28), z_dim=32).to(device)
+    VI = VariationalInference(beta=1)
 
     # Setup optimizer
     optimizer = torch.optim.Adam(VAE.parameters(), lr=1e-3)
 
+    # Run training
     train(mnist, VAE, VI, optimizer, epochs=100, device=device,
-          val_every_epoch=5, store_train_every_epoch=5,
-          tensorboard_logdir='../logs', experiment_name='test_exp')
+          val_every_epoch=5, checkpoint_every=20,
+          tensorboard_logdir='../logs', experiment_name=experiment_name)
 
-
-
-    # test
-    VAE.eval()
-    output = VAE(mnist['test'][10]['data'].to(device))
-
-    import matplotlib.pyplot as plt
-
-    nrows = ncols = 8
-    fig, axs = plt.subplots(nrows, ncols)
-    x_hats = output['px'].sample()
-    for i in range(batch_size):
-        axs[i // nrows, i % nrows].imshow(x_hats[i], cmap='gray')
-    plt.show()
+    # Save model
+    VAE.to(torch.device('cpu'))
+    torch.save(VAE, f"models/{experiment_name}_final.pt")

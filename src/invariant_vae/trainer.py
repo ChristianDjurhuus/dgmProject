@@ -20,7 +20,20 @@ class Trainer(pl.LightningModule):
         y, mu, log_var = self(x)
         loss, _, _ = self.loss(y.squeeze(), x.squeeze(), mu, log_var)
         self.log("loss", loss)
-        return loss
+        
+        logs={"train_loss": loss}
+
+        
+        batch_dictionary={
+            #REQUIRED: It ie required for us to return "loss"
+            "loss": loss,
+             
+            #optional for batch logging purposes
+            "log": logs,
+ 
+        }
+ 
+        return batch_dictionary
 
     def validation_step(self, batch, batch_idx, ):
         x, y = batch
@@ -58,3 +71,21 @@ class Trainer(pl.LightningModule):
         MSE = mseloss(y, x)
         return MSE + KLD, MSE, KLD
 
+    def training_epoch_end(self, outputs):
+        
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+ 
+        # logging using tensorboard logger
+        self.logger.experiment.add_scalar("Loss/Train",
+                                            avg_loss,
+                                            self.current_epoch)
+         
+
+ 
+        epoch_dictionary={
+            # required
+            'loss': avg_loss}
+ 
+        return epoch_dictionary
+
+        

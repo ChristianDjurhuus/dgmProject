@@ -45,7 +45,7 @@ def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6))
 
     # Get model output
     print("\nOBTAINING LATENT REPRESENTATIONS...")
-    output = model(mnist['train']['data'][:N])
+    output = model(dataset['train']['data'][:N])
     latent_representations = output['z'].detach().numpy()
     print("\nLATENT REPRESENTATIONS OBTAINED!")
 

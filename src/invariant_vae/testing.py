@@ -1,5 +1,5 @@
 import torch
-from invariant_ae import AE
+#from invariant_ae import AE
 from invariant_vae import VAE
 from tqdm import tqdm
 import matplotlib.pyplot as plt

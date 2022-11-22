@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from invariant_vae import VAE
+from src.invariant_vae.invariant_vae import VAE
 
 
 

@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.nn import Module
 from e2cnn import gspaces
 from e2cnn import nn
-from utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
+from src.invariant_vae.utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
 
 
 class Encoder(Module):

@@ -62,6 +62,7 @@ def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6))
     data['tsne2'] = tsne_results[:, 1]
     print("\nT-SNE SUCCESSFULLY FINISHED!")
 
+    plt.style.use('ggplot')
     fig = plt.figure(figsize=figsize)
     sns.scatterplot(
         x="tsne1", y="tsne2",
@@ -69,7 +70,7 @@ def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6))
         palette=sns.color_palette("hls", 10),
         data=data,
         legend="full",
-        alpha=0.3)
+        alpha=0.7)
     return fig
 
 if __name__ == '__main__':

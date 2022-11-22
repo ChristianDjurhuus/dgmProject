@@ -64,7 +64,8 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
             if epoch % checkpoint_every == 0:
                 # Store checkpointed model
                 vae.to(torch.device('cpu'))
-                torch.save(VAE, f"models/{experiment_name}/{epoch}.ckpt")
+                os.makedirs(f"models/{experiment_name}", exist_ok=True)
+                torch.save(VAE.state_dict(), f"models/{experiment_name}/{epoch}.ckpt")
                 vae.to(device)
 
             if epoch % val_every_epoch == 0:
@@ -118,10 +119,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(VAE.parameters(), lr=1e-3)
 
     # Run training
-    train(mnist, VAE, VI, optimizer, epochs=100, device=device,
+    train(mnist, VAE, VI, optimizer, epochs=5, device=device,
           val_every_epoch=5, checkpoint_every=20,
           tensorboard_logdir='../logs', experiment_name=experiment_name)
 
     # Save model
     VAE.to(torch.device('cpu'))
-    torch.save(VAE, f"models/{experiment_name}_final.pt")
+    torch.save(VAE.state_dict(), f"models/{experiment_name}/final.pth")

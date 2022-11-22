@@ -12,6 +12,7 @@ import pandas as pd
 from sklearn.manifold import TSNE
 import seaborn as sns
 
+from src.vanilla_vae.vae import VariationalAutoEncoder
 
 def show_reconstructions(dataset, model, nrows=5, ncols=2, figsize=(12, 15), seed=42):
     np.random.seed(seed)
@@ -74,21 +75,23 @@ def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6))
 if __name__ == '__main__':
 
     # Specify experiment name
-    experiment_name = "mnist_vae_v2"
+    experiment_name = "save_test"
 
     # Load mnist
     mnist = load_mnist(data_path="../data")
     mnist_rot = load_mnist(data_path="../data", mnist_type='rotated')
 
     # Check model performance at various epochs
-    for ckpt_num in ['0', '20', '100', '200', '500', 'final']:
+    for ckpt_num in ['0', 'final']:
         file_type = 'ckpt'
         if ckpt_num == 'final':
-            file_type = 'pt'
+            file_type = 'pth'
         filename = f"models/{experiment_name}/{ckpt_num}.{file_type}"
 
         # Load model
-        model = torch.load(filename)
+        model = VariationalAutoEncoder()
+        state_dict = torch.load(filename)
+        model.load_state_dict(state_dict)
         model.eval()
 
         # Show reconstructions
@@ -99,8 +102,10 @@ if __name__ == '__main__':
 
 
     # Load model
-    filename = f"models/{experiment_name}/final.pt"
-    model = torch.load(filename)
+    filename = f"models/{experiment_name}/final.pth"
+    model = VariationalAutoEncoder()
+    state_dict = torch.load(filename)
+    model.load_state_dict(state_dict)
     model.eval()
 
     # t-SNE

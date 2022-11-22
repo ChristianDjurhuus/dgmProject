@@ -16,7 +16,7 @@ hidden_dim = 128
 
 
 
-tb_logger = TensorBoardLogger("tb_logs", name = "invariaent_vae_run")
+tb_logger = TensorBoardLogger("tb_logs", name = "invariant_vae_run")
 
 
 model = Trainer(emb_dim = emb_dim, hidden_dim = hidden_dim)
@@ -27,7 +27,7 @@ datamodule = MNISTDataModule(
 )
 
 trainer = pl.Trainer(
-    max_epochs=5,
+    max_epochs=20,
     accelerator="auto",
     devices=1 if torch.cuda.is_available() else None,  # limiting got iPython runs
     logger = tb_logger,

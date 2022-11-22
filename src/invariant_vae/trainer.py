@@ -60,7 +60,7 @@ class Trainer(pl.LightningModule):
         https://ai.stackexchange.com/questions/27341/in-variational-autoencoders-why-do-people-use-mse-for-the-loss
         '''
         KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - (log_var).exp())
-        #KLD /= (batch * 32) #TODO: generalise this part
+        KLD /= (32 * 32) #TODO: generalise this part
 
         #loss = torch.nn.BCEWithLogitsLoss(reduce='None')
         #BCE = loss(x_hat, x)
@@ -86,6 +86,6 @@ class Trainer(pl.LightningModule):
             # required
             'loss': avg_loss}
  
-        return epoch_dictionary
+        #return epoch_dictionary
 
         

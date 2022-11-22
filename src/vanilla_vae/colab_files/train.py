@@ -1,6 +1,5 @@
 
 import os
-
 import torch
 import numpy as np
 
@@ -25,6 +24,8 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
     # Initialize performance storages
     train_performances = defaultdict(list)
     val_performances = defaultdict(list)
+
+    current_best_loss = np.inf
 
     # Run through epochs
     with trange(epochs) as t:
@@ -69,6 +70,11 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
                 os.makedirs(f"drive/MyDrive/dgm/models/{experiment_name}", exist_ok=True)
                 torch.save(vae.state_dict(), f"drive/MyDrive/dgm/models/{experiment_name}/{epoch}.ckpt")
                 vae.to(device)
+
+                if np.mean(loss_epoch) < current_best_loss:
+                    print(f"\nNEW BEST LOSS (epoch = {epoch}): --> updated best.ckpt ")
+                    torch.save(vae.state_dict(), f"drive/MyDrive/dgm/models/{experiment_name}/best.ckpt")
+                    current_best_loss = np.mean(loss_epoch)
 
             if epoch % val_every_epoch == 0:
                 # Evaluate on a single test batch
@@ -121,10 +127,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(VAE.parameters(), lr=1e-3)
 
     # Run training
-    train(mnist, VAE, VI, optimizer, epochs=5, device=device,
-          val_every_epoch=5, checkpoint_every=20,
+    train(mnist, VAE, VI, optimizer, epochs=50, device=device,
+          val_every_epoch=5, checkpoint_every=5,
           tensorboard_logdir='../logs', experiment_name=experiment_name)
 
     # Save model
     VAE.to(torch.device('cpu'))
-    torch.save(VAE.state_dict(), f"models/{experiment_name}/final.pth")
+    torch.save(VAE.state_dict(), f"drive/MyDrive/dgm/models/{experiment_name}/final.pth")

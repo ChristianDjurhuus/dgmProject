@@ -24,6 +24,8 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
     train_performances = defaultdict(list)
     val_performances = defaultdict(list)
 
+    current_best_loss = np.inf
+
     # Run through epochs
     with trange(epochs) as t:
         for epoch in t:
@@ -65,8 +67,13 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
                 # Store checkpointed model
                 vae.to(torch.device('cpu'))
                 os.makedirs(f"models/{experiment_name}", exist_ok=True)
-                torch.save(VAE.state_dict(), f"models/{experiment_name}/{epoch}.ckpt")
+                torch.save(vae.state_dict(), f"models/{experiment_name}/{epoch}.ckpt")
                 vae.to(device)
+
+                if np.mean(loss_epoch) < current_best_loss:
+                    print(f"\nNEW BEST LOSS (epoch = {epoch}): --> updated best.ckpt ")
+                    torch.save(vae.state_dict(), f"models/{experiment_name}/best.ckpt")
+                    current_best_loss = np.mean(loss_epoch)
 
             if epoch % val_every_epoch == 0:
                 # Evaluate on a single test batch
@@ -74,7 +81,7 @@ def train(data: dict, vae: torch.nn.Module, vi: torch.nn.Module,
                     vae.eval()
 
                     # Randomly select validation batch
-                    val_batch_id = np.random.choice(list(data['test'].keys()))
+                    val_batch_id = np.random.choice(list(data['test'].keys())) # TODO: validate on complete validation set
 
                     # Define data
                     x = data['test'][val_batch_id]['data'].to(device)
@@ -119,8 +126,8 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(VAE.parameters(), lr=1e-3)
 
     # Run training
-    train(mnist, VAE, VI, optimizer, epochs=5, device=device,
-          val_every_epoch=5, checkpoint_every=20,
+    train(mnist, VAE, VI, optimizer, epochs=50, device=device,
+          val_every_epoch=5, checkpoint_every=5,
           tensorboard_logdir='../logs', experiment_name=experiment_name)
 
     # Save model

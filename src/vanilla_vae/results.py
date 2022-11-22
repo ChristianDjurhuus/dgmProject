@@ -27,7 +27,7 @@ def show_reconstructions(dataset, model, nrows=5, ncols=2, figsize=(12, 15), see
 
             # Original and reconstruction
             x_ = x.view(28, 28)
-            x_hat = model(x)['px'].detach().view(28, 28)
+            x_hat = model(x)['px'].mean.detach().view(28, 28)
 
             axs[i, 2 * j].imshow(x_, cmap='gray')
             axs[i, 2 * j].set_title(f"Original image ({label})")
@@ -76,14 +76,14 @@ def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6))
 if __name__ == '__main__':
 
     # Specify experiment name
-    experiment_name = "save_test"
+    experiment_name = "mnist_binary"
 
     # Load mnist
     mnist = load_mnist(data_path="../data")
     mnist_rot = load_mnist(data_path="../data", mnist_type='rotated')
 
     # Check model performance at various epochs
-    for ckpt_num in ['0', 'final']:
+    for ckpt_num in [str(i*5) for i in range(26)]:
         file_type = 'ckpt'
         if ckpt_num == 'final':
             file_type = 'pth'
@@ -101,9 +101,8 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.show()
 
-
     # Load model
-    filename = f"models/{experiment_name}/final.pth"
+    filename = f"models/{experiment_name}/85.ckpt"
     model = VariationalAutoEncoder()
     state_dict = torch.load(filename)
     model.load_state_dict(state_dict)
@@ -112,3 +111,5 @@ if __name__ == '__main__':
     # t-SNE
     fig = show_tsne_latent_space(mnist_rot, model, N=1000)
     fig.show()
+
+

@@ -1,7 +1,7 @@
 from typing import *
 
 import torch
-from torch.distributions import Distribution, constraints
+from torch.distributions import Distribution, Bernoulli, Categorical, constraints
 from torch import Tensor
 
 import numpy as np
@@ -138,21 +138,20 @@ class Decoder(torch.nn.Module):
     def forward(self, z):
         # expand to 2 x 2 x z_dim as they mention in the paper (formatted correctly to torch.Conv2D
         z = z.unsqueeze(-1).unsqueeze(-1)
-        z = z.expand(-1, -1, 2, 2) # (B x C x 2 x 2)
+        x_hat = z.expand(-1, -1, 2, 2) # (B x C x 2 x 2)
 
-        z = self.C1(z)
-        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 4 x 4)
-        z = self.C2(z)
-        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 8 x 8)
-        z = self.C3(z)
-        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 16 x 16)
-        z = self.C4(z)
-        z = torch.nn.functional.interpolate(z, mode='bilinear', scale_factor=2) # (B x hidden_dim x 32 x 32)
-        z = self.C5(z)
-        z = self.C6(z)
+        x_hat = self.C1(x_hat)
+        x_hat = torch.nn.functional.interpolate(x_hat, mode='bilinear', scale_factor=2) # (B x hidden_dim x 4 x 4)
+        x_hat = self.C2(x_hat)
+        x_hat = torch.nn.functional.interpolate(x_hat, mode='bilinear', scale_factor=2) # (B x hidden_dim x 8 x 8)
+        x_hat = self.C3(x_hat)
+        x_hat = torch.nn.functional.interpolate(x_hat, mode='bilinear', scale_factor=2) # (B x hidden_dim x 16 x 16)
+        x_hat = self.C4(x_hat)
+        x_hat = torch.nn.functional.interpolate(x_hat, mode='bilinear', scale_factor=2) # (B x hidden_dim x 32 x 32)
+        x_hat = self.C5(x_hat)
+        x_hat = self.C6(x_hat)
 
-        logits = torch.sigmoid(z[:, :, 2:30, 2:30])
-        return logits
+        return x_hat[:, :, 2:30, 2:30]
 
 class VariationalAutoEncoder(torch.nn.Module):
     def __init__(self, observation_shape=(28,28), z_dim=32):
@@ -176,7 +175,8 @@ class VariationalAutoEncoder(torch.nn.Module):
         return ReparameterizedDiagonalGaussian(mu, log_sigma)
 
     def observation_model(self, z: Tensor) -> Distribution:
-        return self.decoder(z)
+        x_hat = self.decoder(z)
+        return Bernoulli(logits=x_hat)
 
     def forward(self, x) -> Dict[str, Any]:
         # change data shape
@@ -228,10 +228,7 @@ class VariationalInference(torch.nn.Module):
         # get log-probs to be used in kl and elbo calculation
         log_pz = reduce(pz.log_prob(z))
         log_qz = reduce(qz.log_prob(z))
-
-        # compute mse as log_prob og px as we use a gaussian to model the output
-        mse = torch.nn.MSELoss(reduction='none')
-        log_px = -mse(px.flatten(1), x.flatten(1)).mean(axis=1)
+        log_px = reduce(px.log_prob(x.view(x.shape[0], -1, *model.observation_shape)))
 
         # compute the elbo
         kl = log_qz - log_pz

@@ -3,7 +3,8 @@ import torch.nn.functional as F
 from torch.nn import Module
 from e2cnn import gspaces
 from e2cnn import nn
-from src.invariant_vae.utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
+from utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
+import math
 
 
 class Encoder(Module):
@@ -103,8 +104,6 @@ class Encoder(Module):
             batch_norm,
             nonlinearity
         )
-        self.pool3 = nn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=1, padding=0)
-
         # convolution 7 --> out
         # the old output type is the input type to the next layer
         in_type = out_type
@@ -123,20 +122,15 @@ class Encoder(Module):
 
         x = self.block1(x)
         x = self.block2(x)
-        #x = self.pool1(x)
         x = self.block3(x)
         x = self.block4(x)
-        #x = self.pool2(x)
         x = self.block5(x)
         x = self.block6(x)
-        #x = self.pool3(x)
         x = self.block7(x)
 
-        #x = x.tensor.squeeze(-1).squeeze(-1)
         x = x.tensor.mean(dim=(2, 3))
         x_0, x_1 = x[:, :self.out_dim], x[:, self.out_dim:]
         mu, log_var = x_0[:,:self.out_dim//2], x_0[:,self.out_dim//2:]
-        #print("mu, var shapes: ", mu.shape, log_var.shape)
         return mu, log_var, x_1
 
 
@@ -215,23 +209,130 @@ class VAE(Module):
         self.encoder = Encoder(out_dim=emb_dim*2)
         self.decoder = Decoder(input_size=emb_dim, hidden_size = hidden_dim)
 
-    def forward(self, x, do_rot=True):
+        # define the parameters of the prior, chosen as p(z) = N(0, I)
+        self.register_buffer('prior_params', torch.zeros(torch.Size([1, 2*emb_dim])))
+    def posterior(self, x):
+        '''
+        Computes distribution q(x|x) = N(z| mu_x, sigma_x)
+        '''
         mu, log_var, v = self.encoder(x)
-        z = self.reparameterize(mu, log_var)
+        return ReparameterizedDiagonalGaussian(mu, log_var), v
 
+    def prior(self, batch_size):
+        '''
+        Computes distribution p(z)
+        '''
+        prior_params = self.prior_params.expand(batch_size, *self.prior_params.shape[-1:])
+        mu, log_var = prior_params.chunk(2, dim=-1)
+        return ReparameterizedDiagonalGaussian(mu, log_var)
+    
+    def observation_model(self, z):
+        '''
+        Computes decoded output p(x|z)
+        '''
+        px_logits = self.decoder(z)
+        return px_logits #TODO: maybe reshape
+    
+
+    def forward(self, x, do_rot=True):
+        #TODO: maybe flatten input
+
+        #define posterior q(z|x) and determine rotation
+        qz, v = self.posterior(x)
+
+        #define prior p(z)
+        pz = self.prior(batch_size=x.shape[0])
+
+        #Sample posterior using reparameterization trick
+        z = qz.rsample()
+
+        #define the observation model p(x|z)
+        px = self.observation_model(z)
+
+        #define the rotation matrix
         rot = get_rotation_matrix(v)
-        #print(v, rot)
-        y = self.decoder(z)
+
         if do_rot:
-            y = rot_img(y, rot)
-        return y, rot, mu, log_var
+            px = rot_img(px, rot)
 
-    def reparameterize(self, mu, logvar, inference=False):
-        
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
+        return {'px': px, 'pz': pz, 'qz': qz, 'z': z, 'rot':rot}
 
-        if inference:
-            return mu
+    def sample_prior(self, batch_size):
+        '''
+        sample z ~ p(z) and returns p(x|z)
+        '''
+        #define prior
+        pz = self.prior(batch_size=batch_size)
+        #sample prior
+        z = pz.rsample()
+        #computing p(x|z)
+        px = self.observation_model(z)
+        return px
+
+class ReparameterizedDiagonalGaussian():
+    def __init__(self, mu, logvar):
+        assert mu.shape == logvar.shape, "Dimension mismatch mu: {mu.shape}, sigma: {logvar.shape}"
+        self.mu = mu
+        self.sigma = torch.exp(0.5 * logvar)
+
+    def sample_epsilon(self,):
+        '''
+        epsilon ~ N(0, 1)
+        '''
+        return torch.empty_like(self.mu).normal_()
+    
+    def sample(self,):
+        '''
+        return sample z ~ N(z| mu, sigma)
+        '''
+        with torch.no_grad:
+            return self.rsample()
         
-        return mu + (eps * std)
+    def rsample(self,):
+        '''
+        Return sample `z ~ N(z | mu, sigma)` (with the reparameterization trick)
+        '''
+        return self.mu + (self.sigma * self.sample_epsilon())
+    
+    def log_prob(self, z):
+        '''
+        Returns the log_prob(z)
+        '''
+        C = - 0.5 * math.log(2 * math.pi)
+        return C - self.sigma.log() - 0.5 * ((z - self.mu)/self.sigma)**2
+
+
+class VariationalInference(torch.nn.Module):
+    def __init__(self, beta=1):
+        super().__init__()
+        self.beta = beta
+
+    def reduce(self, x):
+        return x.view(x.size(0), -1).sum(dim=1)
+
+    def forward(self, model, x):
+
+        outputs = model(x)
+
+        #Unpacking outputs
+        px, pz, qz, z, rot = [outputs[k] for k in ["px", "pz", "qz", "z", "rot"]]
+
+        # evaluate log probabilities
+        #log_px = self.reduce(px.log_prob(x))
+        #log_px = self.reduce(F.softmax(px, dim=-1)) #temp fix
+        mseloss = torch.nn.MSELoss(reduction='none')
+        log_px = self.reduce(mseloss(px, x))
+        log_pz = self.reduce(pz.log_prob(z))
+        log_qz = self.reduce(qz.log_prob(z))
+
+        #Computing elbo px.log_prob(x)
+        kld = log_qz - log_pz
+        elbo = log_px - kld
+        beta_elbo = log_px - self.beta*kld
+        loss = -elbo.mean()
+
+        # prepare the output
+        with torch.no_grad():
+            diagnostics = {'elbo': elbo, 'log_px':log_px, 'kld': kld}
+            
+        return loss, diagnostics, outputs

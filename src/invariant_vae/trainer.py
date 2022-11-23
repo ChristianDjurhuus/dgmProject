@@ -4,6 +4,9 @@ import pytorch_lightning as pl
 #from invariant_vae import VAE
 from invariant_vaeV2 import VAE
 from invariant_vaeV2 import VariationalInference
+from torch.distributions import Bernoulli
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class Trainer(pl.LightningModule):
@@ -21,11 +24,15 @@ class Trainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
+        x = x.bernoulli()
         #y, mu, log_var = self(x)
         #loss, _, _ = self.loss(y.squeeze(), x.squeeze(), mu, log_var)
         loss, diagnostics, outputs = self(x)
 
-        self.log("loss", loss)
+        #self.log("loss", loss)
+        self.log("elbo", diagnostics["elbo"].mean())
+        self.log("log_px", diagnostics["log_px"].mean())
+        self.log("kld", diagnostics["kld"].mean())
         
         logs={"train_loss": loss}
 
@@ -41,16 +48,44 @@ class Trainer(pl.LightningModule):
  
         return batch_dictionary
 
-    def validation_step(self, batch, batch_idx, ):
+    def validation_step(self, batch, batch_idx):
         x, y = batch
+        x = x.bernoulli()
         #y, mu, log_var = self(x)
         #loss, _, _ = self.loss(y.squeeze(), x.squeeze(), mu, log_var)
         #self.log("val_loss", loss)
-        loss, _, _ = self(x)
-        self.log("val_loss", loss)
+        loss, diagnostics, outputs = self(x)
+        #self.log("val_loss", loss)
+        self.log("val_elbo", diagnostics["elbo"].mean())
+        self.log("val_log_px", diagnostics["log_px"].mean())
+        self.log("val_kld", diagnostics["kld"].mean())
+        
+        if batch_idx == 0:
+            nrows = 5
+            ncols = 2
+            fig, axs = plt.subplots(nrows, 2 * ncols, figsize=(15,15))
+            for i in range(nrows):
+                for j in range(ncols):
+                    idx = np.random.choice(x.shape[0])
+                    # Original and reconstruction
+                    x_ = x.squeeze().cpu().detach().numpy()
+                    x_hat = outputs['px'].mean.squeeze().cpu().detach().numpy()
+
+                    axs[i, 2 * j].imshow(x_[idx,:,:], cmap='gray')
+                    axs[i, 2 * j].set_title(f"Original image ({y[idx]})")
+                    axs[i, 2 * j].axis('off')
+
+                    axs[i, 2 * j + 1].imshow(x_hat[idx,:,:], cmap='gray')
+                    axs[i, 2 * j + 1].set_title(f"Reconstructed image ({y[idx]})")
+                    axs[i, 2 * j + 1].axis('off')
+                
+        plt.savefig(f"results_epoch{self.current_epoch}.png")
+             
+           
+
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.vae.parameters(), lr=0.001)
+        optimizer = torch.optim.Adam(self.vae.parameters(), lr=1e-3)
         lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
             optimizer=optimizer,
             gamma=0.995,
@@ -60,7 +95,7 @@ class Trainer(pl.LightningModule):
             'interval': 'epoch',
             'frequency': 2
         }
-        return [optimizer], [scheduler]
+        return [optimizer]#, [scheduler]
     
     #def loss(self, y, x, mu, log_var):#, batch):
         '''
@@ -93,7 +128,3 @@ class Trainer(pl.LightningModule):
         epoch_dictionary={
             # required
             'loss': avg_loss}
- 
-        return epoch_dictionary
-
-        

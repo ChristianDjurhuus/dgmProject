@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader, random_split
 import torchvision
 from torchvision import transforms
 from pytorch_lightning import LightningDataModule
+from torch.utils.data import Subset
+
 
 
 class MNISTDataModule(LightningDataModule):
@@ -31,7 +33,11 @@ class MNISTDataModule(LightningDataModule):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
             mnist_full = torchvision.datasets.MNIST(self.data_dir, train=True, transform=self.transform)
-            self.mnist_train, self.mnist_val = random_split(mnist_full, [55000, 5000])
+            ####
+            subset_mnist = Subset(mnist_full, indices=range(len(mnist_full) // 10))
+            self.mnist_train, self.mnist_val = random_split(subset_mnist, [5000, 1000] )
+            ####
+            #self.mnist_train, self.mnist_val = random_split(mnist_full, [55000, 5000])
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:

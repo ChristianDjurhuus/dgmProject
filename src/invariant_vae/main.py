@@ -9,10 +9,10 @@ from pytorch_lightning.callbacks.progress import TQDMProgressBar
 from data import MNISTDataModule
 
 BATCH_SIZE = 32
-MAX_EPOCHS = 10
+MAX_EPOCHS = 1
 idx = 1
 emb_dim = 32
-hidden_dim = 128
+hidden_dim = 32
 
 
 
@@ -27,7 +27,7 @@ datamodule = MNISTDataModule(
 )
 
 trainer = pl.Trainer(
-    max_epochs=20,
+    max_epochs=MAX_EPOCHS,
     accelerator="auto",
     devices=1 if torch.cuda.is_available() else None,  # limiting got iPython runs
     logger = tb_logger,

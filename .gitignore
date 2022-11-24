@@ -1,4 +1,6 @@
 data/
+tb_logs/
+lightning_logs/
 logs/
 models/
 

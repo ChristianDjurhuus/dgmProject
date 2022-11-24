@@ -40,15 +40,16 @@ def show_reconstructions(dataloaders, model, dataset_type: str, nrows: int=5, nc
             axs[i, 2 * j + 1].axis('off')
     return fig
 
-def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6)):
+def show_tsne_latent_space(dataloaders, model, dataset_type, n_iter=500, N=12000, figsize=(10, 6)):
     # Get labels
-    labels = dataset['train']['labels'][:N].numpy()
+    data = dataloaders[dataset_type]
+    labels = data.dataset.labels[:N].numpy()
     print("\nDISTRIBUTION OF LABELS:")
     pprint(Counter(labels))
 
     # Get model output
     print("\nOBTAINING LATENT REPRESENTATIONS...")
-    output = model(dataset['train']['data'][:N])
+    output = model(data.dataset.dataset[:N])
     latent_representations = output['z'].detach().numpy()
     print("\nLATENT REPRESENTATIONS OBTAINED!")
 
@@ -80,9 +81,22 @@ if __name__ == '__main__':
     # Specify experiment name
     experiment_name = input("Enter experiment name: ")
 
-    # Load mnist
-    mnist_loaders = get_loaders(MNISTDataset, data_path="../data", version='original')
+    # Load mnist (rotated)
     mnist_rot_loaders = get_loaders(MNISTDataset, data_path="../data", version='rotated')
+
+    # Load model
+    filename = f"models/{experiment_name}/best.ckpt"
+    model = VariationalAutoEncoder()
+    state_dict = torch.load(filename)
+    model.load_state_dict(state_dict)
+    model.eval()
+
+    # t-SNE
+    fig = show_tsne_latent_space(mnist_rot_loaders, model, dataset_type='test', N=1000)
+    fig.show()
+
+    # Load original mnist
+    mnist_loaders = get_loaders(MNISTDataset, data_path="../data", version='original')
 
     # Check model performance at various epochs
     for ckpt_num in ['0', '5', '10', '15', 'best']:
@@ -102,16 +116,5 @@ if __name__ == '__main__':
         fig.suptitle(f"CHECKPOINT at {ckpt_num} EPOCH(s)\n", fontsize=15)
         plt.tight_layout()
         plt.show()
-
-    # Load model
-    filename = f"models/{experiment_name}/85.ckpt"
-    model = VariationalAutoEncoder()
-    state_dict = torch.load(filename)
-    model.load_state_dict(state_dict)
-    model.eval()
-
-    # t-SNE
-    fig = show_tsne_latent_space(mnist_rot, model, N=1000)
-    fig.show()
 
 

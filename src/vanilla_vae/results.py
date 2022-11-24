@@ -1,40 +1,42 @@
 
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-
-from src.mnist_loader import load_mnist
-
 from pprint import pprint
 from collections import Counter
 
+import torch
+import numpy as np
 import pandas as pd
-from sklearn.manifold import TSNE
-import seaborn as sns
+import matplotlib.pyplot as plt
 
+import seaborn as sns
+from sklearn.manifold import TSNE
+
+from src.mnist_loader import MNISTDataset, get_loaders
 from src.vanilla_vae.vae import VariationalAutoEncoder
 
-def show_reconstructions(dataset, model, nrows=5, ncols=2, figsize=(12, 15), seed=42):
+
+def show_reconstructions(dataloaders, model, dataset_type: str, nrows: int=5, ncols: int=2, figsize: tuple=(12, 15), seed: int=42):
     np.random.seed(seed)
+
+    # Get data loader
+    data = dataloaders[dataset_type]
 
     fig, axs = plt.subplots(nrows, 2 * ncols, figsize=(figsize))
     for i in range(nrows):
         for j in range(ncols):
             # Get image and label
-            idx = np.random.choice(mnist['train']['data'].__len__())
-            label = int(dataset['train']['labels'][idx])
-            x = dataset['train']['data'][idx].unsqueeze(0)
+            idx = np.random.choice(data.dataset.__len__())
+            sample = data.dataset.__getitem__(idx)
 
             # Original and reconstruction
-            x_ = x.view(28, 28)
-            x_hat = model(x)['px'].mean.detach().view(28, 28)
+            x_ = sample['data'].unsqueeze(0).view(28, 28)
+            x_hat = model(sample['data'].unsqueeze(0))['px'].mean.detach().view(28, 28)
 
             axs[i, 2 * j].imshow(x_, cmap='gray')
-            axs[i, 2 * j].set_title(f"Original image ({label})")
+            axs[i, 2 * j].set_title(f"Original image ({int(sample['label'])})")
             axs[i, 2 * j].axis('off')
 
             axs[i, 2 * j + 1].imshow(x_hat, cmap='gray')
-            axs[i, 2 * j + 1].set_title(f"Reconstructed image ({label})")
+            axs[i, 2 * j + 1].set_title(f"Reconstructed image ({int(sample['label'])})")
             axs[i, 2 * j + 1].axis('off')
     return fig
 
@@ -76,14 +78,14 @@ def show_tsne_latent_space(dataset, model, n_iter=500, N=12000, figsize=(10, 6))
 if __name__ == '__main__':
 
     # Specify experiment name
-    experiment_name = "mnist_binary"
+    experiment_name = input("Enter experiment name: ")
 
     # Load mnist
-    mnist = load_mnist(data_path="../data")
-    mnist_rot = load_mnist(data_path="../data", mnist_type='rotated')
+    mnist_loaders = get_loaders(MNISTDataset, data_path="../data", version='original')
+    mnist_rot_loaders = get_loaders(MNISTDataset, data_path="../data", version='rotated')
 
     # Check model performance at various epochs
-    for ckpt_num in [str(i*5) for i in range(26)]:
+    for ckpt_num in ['0', '5', '10', '15', 'best']:
         file_type = 'ckpt'
         if ckpt_num == 'final':
             file_type = 'pth'
@@ -96,7 +98,7 @@ if __name__ == '__main__':
         model.eval()
 
         # Show reconstructions
-        fig = show_reconstructions(mnist, model, figsize=(8, 10))
+        fig = show_reconstructions(mnist_loaders, model, dataset_type='test', figsize=(8, 10))
         fig.suptitle(f"CHECKPOINT at {ckpt_num} EPOCH(s)\n", fontsize=15)
         plt.tight_layout()
         plt.show()

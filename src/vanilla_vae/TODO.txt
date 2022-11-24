@@ -1,5 +1,10 @@
-1) Experiment with VAE model architecture
-2) Train vanilla VAE (probably on a heavy GPU...)
-3) Add code for saving trained model
-4) Create t-SNE plot on the latent space
-5) Maybe change MNIST resolution from 0-255 pixel values to something less heavy...
+1) Merge with Rotation-Invariant VAE
+    i) Maybe this can be done by having the same structure and then solely changing the encoder part?
+
+2) Try a PCA on the latent dimension
+3) Or a valid t-SNE? Or kernel PCA?
+4) Plotting - stratify on numbers to checkout reconstructions
+5) (MAYBE:) Predictive property - how good can we train a classifier by
+    i) applying a CNN to the MNIST problem?
+    ii) training a model on the latent representations?
+    iii) including the label, y, in the model input for modeling the joint probability of p(x,y)?

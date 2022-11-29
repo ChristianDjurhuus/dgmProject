@@ -6,10 +6,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 from tqdm import trange
+import matplotlib.pyplot as plt
 from collections import defaultdict
 
 from vae import VariationalAutoEncoder, VariationalInference
 from src.mnist_loader import MNISTDataset, get_loaders
+from src.results import show_reconstructions, plot_reconstructed_digits
 
 
 def train(dataloaders: dict, vae: torch.nn.Module, vi: torch.nn.Module,
@@ -101,6 +103,18 @@ def train(dataloaders: dict, vae: torch.nn.Module, vi: torch.nn.Module,
                         print(f"\nNEW BEST LOSS (epoch = {epoch}): --> updated best.ckpt ")
                         torch.save(vae.state_dict(), f"models/{experiment_name}/best.ckpt")
                         current_best_loss = np.mean(val_loss_epoch)
+
+                    os.makedirs(f"../plots/vanilla_vae/{experiment_name}/val_reconstructions", exist_ok=True)
+                    reconstructions, actual_samples = plot_reconstructed_digits(dataloaders, 'val', vae, N=10, device=device, figsize=(10, 10), epoch=epoch)
+                    reconstructions.suptitle(f"EPOCH = {epoch}", fontsize=20, weight='bold')
+                    reconstructions.tight_layout(rect=[0, 0.0, 1, 0.98])
+                    reconstructions.savefig(f"../plots/vanilla_vae/{experiment_name}/val_reconstructions/epoch{epoch}.png")
+
+                    if epoch == 0:
+                        actual_samples.suptitle(f"GROUND TRUTH IMAGES", fontsize=20, weight='bold')
+                        actual_samples.tight_layout(rect=[0, 0.0, 1, 0.98])
+                        actual_samples.savefig(f"../plots/vanilla_vae/{experiment_name}/val_reconstructions/0_GROUND_TRUTH.png")
+                    plt.close()
 
             # Print status
             t.set_description_str(f'Training ELBO: {train_performances["elbo"][-1]:.3f} \t| \t Validation ELBO: {val_performances["elbo"][-1]:.3f} | Progress')

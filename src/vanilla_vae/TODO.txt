@@ -1,9 +1,10 @@
 1) Merge with Rotation-Invariant VAE
     i) Maybe this can be done by having the same structure and then solely changing the encoder part?
 
-2) Try a PCA on the latent dimension
-3) Or a valid t-SNE? Or kernel PCA?
-4) Plotting - stratify on numbers to checkout reconstructions
+2) Train from checkpoint (load model from checkpoint and train (argument))
+
+3) Try a PCA on the latent dimension
+4) Or a valid t-SNE? Or kernel PCA?
 5) (MAYBE:) Predictive property - how good can we train a classifier by
     i) applying a CNN to the MNIST problem?
     ii) training a model on the latent representations?

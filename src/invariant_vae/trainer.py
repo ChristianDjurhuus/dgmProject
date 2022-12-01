@@ -51,6 +51,7 @@ class Trainer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         x = x.bernoulli()
+        #x = x.round()
         #y, mu, log_var = self(x)
         #loss, _, _ = self.loss(y.squeeze(), x.squeeze(), mu, log_var)
         #self.log("val_loss", loss)
@@ -60,13 +61,14 @@ class Trainer(pl.LightningModule):
         self.log("val_log_px", diagnostics["log_px"].mean())
         self.log("val_kld", diagnostics["kld"].mean())
         
-        if batch_idx == 0:
+        if batch_idx == 0 and self.current_epoch%10==0:
+            torch.save(self.vae.state_dict(), f'trained_modelsv2/invariant_vae_{self.current_epoch}.pth')
             nrows = 5
             ncols = 2
             fig, axs = plt.subplots(nrows, 2 * ncols, figsize=(15,15))
             for i in range(nrows):
                 for j in range(ncols):
-                    idx = np.random.choice(x.shape[0])
+                    idx = np.random.choice(x.shape[0], replace=False)
                     # Original and reconstruction
                     x_ = x.squeeze().cpu().detach().numpy()
                     x_hat = outputs['px'].mean.squeeze().cpu().detach().numpy()
@@ -79,8 +81,8 @@ class Trainer(pl.LightningModule):
                     axs[i, 2 * j + 1].set_title(f"Reconstructed image ({y[idx]})")
                     axs[i, 2 * j + 1].axis('off')
                 
-        plt.savefig(f"results_epoch{self.current_epoch}.png")
-             
+            plt.savefig(f"results_epoch{self.current_epoch}.png")
+            plt.close()
            
 
 

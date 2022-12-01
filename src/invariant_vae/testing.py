@@ -1,5 +1,5 @@
 import torch
-#from invariant_ae import AE
+from invariant_ae import AE
 from invariant_vae import VAE
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -11,9 +11,9 @@ hidden_dim = 128
 
 
 CUDA = torch.cuda.is_available()
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 SEED =  42
-EPOCHS = 10
+EPOCHS = 500
 ZDIMS = 32
 HIDDEN_UNITS = 32
 

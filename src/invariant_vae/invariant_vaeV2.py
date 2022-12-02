@@ -5,6 +5,7 @@ from e2cnn import gspaces
 from e2cnn import nn
 from utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
 import math
+from torch.distributions import Bernoulli
 
 
 class Encoder(Module):
@@ -107,7 +108,7 @@ class Encoder(Module):
         # convolution 7 --> out
         # the old output type is the input type to the next layer
         in_type = out_type
-        out_scalar_fields = nn.FieldType(self.r2_act, out_dim * [self.r2_act.trivial_repr])
+        out_scalar_fields = nn.FieldType(self.r2_act, 2*out_dim * [self.r2_act.trivial_repr])
         out_vector_field = nn.FieldType(self.r2_act, 1 * [self.r2_act.irrep(1)])
         out_type = out_scalar_fields + out_vector_field
 
@@ -129,8 +130,8 @@ class Encoder(Module):
         x = self.block7(x)
 
         x = x.tensor.mean(dim=(2, 3))
-        x_0, x_1 = x[:, :self.out_dim], x[:, self.out_dim:]
-        mu, log_var = x_0[:,:self.out_dim//2], x_0[:,self.out_dim//2:]
+        x_0, x_1 = x[:, :2*self.out_dim], x[:, 2*self.out_dim:]
+        mu, log_var = x_0[:,:2*self.out_dim//2], x_0[:,2*self.out_dim//2:]
         return mu, log_var, x_1
 
 
@@ -199,14 +200,13 @@ class Decoder(Module):
         x = self.block5(x)
         x = self.block6(x)
         x = x[:, :, 2:30, 2:30]
-        x = torch.sigmoid(x)
         return x
 
 
 class VAE(Module):
     def __init__(self, emb_dim, hidden_dim):
         super().__init__()
-        self.encoder = Encoder(out_dim=emb_dim*2)
+        self.encoder = Encoder(out_dim=emb_dim)
         self.decoder = Decoder(input_size=emb_dim, hidden_size = hidden_dim)
 
         # define the parameters of the prior, chosen as p(z) = N(0, I)
@@ -226,12 +226,13 @@ class VAE(Module):
         mu, log_var = prior_params.chunk(2, dim=-1)
         return ReparameterizedDiagonalGaussian(mu, log_var)
     
-    def observation_model(self, z):
+    def observation_model(self, z, rot):
         '''
         Computes decoded output p(x|z)
         '''
         px_logits = self.decoder(z)
-        return px_logits #TODO: maybe reshape
+        rot_px_logits = rot_img(px_logits, rot)
+        return Bernoulli(logits=rot_px_logits)  #TODO: maybe reshape
     
 
     def forward(self, x, do_rot=True):
@@ -246,14 +247,14 @@ class VAE(Module):
         #Sample posterior using reparameterization trick
         z = qz.rsample()
 
-        #define the observation model p(x|z)
-        px = self.observation_model(z)
-
         #define the rotation matrix
         rot = get_rotation_matrix(v)
 
-        if do_rot:
-            px = rot_img(px, rot)
+        #define the observation model p(x|z)
+        px = self.observation_model(z, rot)
+
+        #if do_rot:
+        #    px = rot_img(px, rot)
 
         return {'px': px, 'pz': pz, 'qz': qz, 'z': z, 'rot':rot}
 
@@ -297,6 +298,7 @@ class ReparameterizedDiagonalGaussian():
     def log_prob(self, z):
         '''
         Returns the log_prob(z)
+        Determined by computing the log of the pdf for a normal distribution
         '''
         C = - 0.5 * math.log(2 * math.pi)
         return C - self.sigma.log() - 0.5 * ((z - self.mu)/self.sigma)**2
@@ -318,10 +320,8 @@ class VariationalInference(torch.nn.Module):
         px, pz, qz, z, rot = [outputs[k] for k in ["px", "pz", "qz", "z", "rot"]]
 
         # evaluate log probabilities
-        #log_px = self.reduce(px.log_prob(x))
-        #log_px = self.reduce(F.softmax(px, dim=-1)) #temp fix
-        mseloss = torch.nn.MSELoss(reduction='none')
-        log_px = self.reduce(mseloss(px, x))
+        #log_px = self.reduce(rot_img(px.log_prob(x),rot))
+        log_px = self.reduce(px.log_prob(x))
         log_pz = self.reduce(pz.log_prob(z))
         log_qz = self.reduce(qz.log_prob(z))
 

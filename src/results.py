@@ -18,6 +18,7 @@ from sklearn.decomposition import PCA
 
 from mnist_loader import MNISTDataset, get_loaders
 from vanilla_vae.vae import VariationalAutoEncoder
+from invariant_vae.invariant_vaeV2 import VAE
 
 
 def show_reconstructions(dataloaders: dict, dataset_type: str, model: torch.nn.Module, digit=None, device: str='cpu', nrows: int=5, ncols: int=2, figsize: tuple=(12, 15), seed: int=42):
@@ -250,7 +251,7 @@ def plot_reconstructed_digits(dataloaders: dict, dataset_type: str, model: torch
 
             # Original and reconstruction
             x_ = dataset_['data'][idx].unsqueeze(0).to(torch.device(device))
-            x_hat = model(x_)['px'].mean.detach().view(28, 28)
+            x_hat = model(x_)['px'].mean.detach().view(28, 28) if isinstance(model, VariationalAutoEncoder) else model(x_)['px'].detach().view(28, 28)
 
             axs[digit, j].imshow(x_hat.cpu(), cmap='gray')
             axs[digit, j].axis('off')
@@ -284,8 +285,8 @@ def make_gif(img_dir, filename, duration=100):
 if __name__ == '__main__':
 
     # Specify experiment name
-    #experiment_name = input("Enter experiment name: ")
-    experiment_name = 'vanilla-1000epochs'
+    model_type = input("Choose model type, 1 for vanilla, 2 for invariant: ")
+    experiment_name = input("Enter experiment name: ")
     N = 5000
 
     # Load original mnist
@@ -294,27 +295,25 @@ if __name__ == '__main__':
     mnist_rot_loaders = get_loaders(MNISTDataset, data_path="data", version='rotated')
 
     # Load model
-    filename = f"vanilla_vae/models/{experiment_name}/best.ckpt"
-    #filename = f"vanilla_vae/models/{experiment_name}/10.ckpt"
-    model = VariationalAutoEncoder()
+    filename = f"vanilla_vae/models/{experiment_name}/best.ckpt" if model_type == "1" else f"invariant_vae/models/{experiment_name}/best.ckpt"
+    model = VariationalAutoEncoder() if model_type == "1" else VAE(32, 32)
     state_dict = torch.load(filename)
     model.load_state_dict(state_dict)
     model.eval()
 
-    for name_, loaders in {'regular': mnist_loaders, 'rotated': mnist_rot_loaders}.items():
+    # for name_, loaders in {'regular': mnist_loaders, 'rotated': mnist_rot_loaders}.items():
+    #
+    #     # Run analysis of latent space
+    #     fig_pca, fig_tsne = pca_tsne(loaders, model, dataset_type='test', N=N, n_iter=1000)
+    #     fig_pca.suptitle(f"PCA - {name_} MNIST")
+    #     fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
+    #     fig_pca.savefig(f"plots/PCA_{name_}.png")
+    #     fig_tsne.savefig(f"plots/PCA_{name_}.png")
+    #     fig_pca.show()
+    #     fig_tsne.show()
 
-        # Run analysis of latent space
-        fig_pca, fig_tsne = pca_tsne(loaders, model, dataset_type='test', N=N, n_iter=1000)
-        fig_pca.suptitle(f"PCA - {name_} MNIST")
-        fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
-        fig_pca.savefig(f"plots/PCA_{name_}.png")
-        fig_tsne.savefig(f"plots/PCA_{name_}.png")
-        fig_pca.show()
-        fig_tsne.show()
-
-    """
-
-    for name_, loaders in {'rotated': mnist_rot_loaders, 'regular': mnist_loaders}.items():
+    loaders_ =  {'regular': mnist_loaders, 'rotated': mnist_rot_loaders} if model_type == '1' else {'regular_invariant': mnist_loaders, 'rotated_invariant': mnist_rot_loaders}
+    for name_, loaders in loaders_.items():
 
         # Run analysis of latent space
         fig_pca, fig_tsne, pca, tsne, latent = latent_space_analysis(loaders, model, dataset_type='test', N=N, n_iter=1000)
@@ -325,12 +324,13 @@ if __name__ == '__main__':
         fig_pca.show()
         fig_tsne.show()
 
+        # TODO: save the results of the KNN classifier on each digit somehow
         print(pca)
         print(tsne)
         print(latent)
 
         # Get reconstructions on test set
-        fig, gt_fig = plot_reconstructed_digits(loaders, 'test', model, N=10, epoch=0) # epoch=0 for getting ground truth image
+        fig, gt_fig = plot_reconstructed_digits(loaders, 'test', model, N=10, epoch=0)  # epoch=0 for getting ground truth image
 
         # Ground truth images
         gt_fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -343,13 +343,27 @@ if __name__ == '__main__':
         fig.suptitle(f"{name_} - reconstructions")
         fig.savefig(f"plots/recon_{name_}.png")
         fig.show()
-        
-
 
     # Create a gif og validation reconstructions from training
     make_gif(f"plots/vanilla_vae/{experiment_name}/val_reconstructions", filename="val_reconstructions.gif")
-    
-    """
+
+
+
+    # for name_, loaders in {'regular_invariant': mnist_loaders, 'rotated_invariant': mnist_rot_loaders}.items():
+    #     # Get reconstructions on test set
+    #     fig, gt_fig = plot_reconstructed_digits(loaders, 'test', model, N=10, epoch=0) # epoch=0 for getting ground truth image
+    #
+    #     # Ground truth images
+    #     gt_fig.tight_layout(rect=[0, 0, 1, 0.95])
+    #     gt_fig.suptitle(f"{name_} - ground truth")
+    #     gt_fig.savefig(f"plots/ground_truth_{name_}.png")
+    #     gt_fig.show()
+    #
+    #     # Reconstructed images
+    #     fig.tight_layout(rect=[0, 0, 1, 0.95])
+    #     fig.suptitle(f"{name_} - reconstructions")
+    #     fig.savefig(f"plots/recon_{name_}.png")
+    #     fig.show()
 
 
     # # Check model performance at various epochs

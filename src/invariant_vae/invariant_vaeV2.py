@@ -3,13 +3,14 @@ import torch.nn.functional as F
 from torch.nn import Module
 from e2cnn import gspaces
 from e2cnn import nn
-from utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
+from invariant_vae.utils import rot_img, get_rotation_matrix, get_batch_norm, get_non_linearity
 import math
 
 
 class Encoder(Module):
-    def __init__(self, out_dim, hidden_dim=32):
+    def __init__(self, out_dim, hidden_dim=32, observation_shape = (28,28)):
         super().__init__()
+        self.observation_shape = observation_shape
         self.out_dim=out_dim
         self.r2_act = gspaces.Rot2dOnR2(N=-1, maximum_frequency=8)
         in_type = nn.FieldType(self.r2_act, [self.r2_act.trivial_repr])
@@ -118,6 +119,7 @@ class Encoder(Module):
     def forward(self, x: torch.Tensor):
         #x = x.unsqueeze(1)   #TODO: HVORFOR KOMMENTER DEN HER UD
         #x = torch.nn.functional.pad(x, (0, 1, 0, 1), value=0).unsqueeze(1)
+        x = x.view(x.shape[0], 1, *self.observation_shape)
         x = nn.GeometricTensor(x, self.input_type)
 
         x = self.block1(x)

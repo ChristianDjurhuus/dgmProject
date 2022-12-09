@@ -4,6 +4,8 @@ lightning_logs/
 logs/
 models/
 
+/plots
+
 .idea/
 
 *__pycache__/

@@ -2,7 +2,7 @@ import glob, os
 from PIL import Image
 
 from pprint import pprint
-from collections import Counter
+from collections import Counter, defaultdict
 
 import torch
 import numpy as np
@@ -11,6 +11,10 @@ import matplotlib.pyplot as plt
 
 import seaborn as sns
 from sklearn.manifold import TSNE
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn.decomposition import PCA
+
 
 from mnist_loader import MNISTDataset, get_loaders
 from vanilla_vae.vae import VariationalAutoEncoder
@@ -50,7 +54,7 @@ def show_reconstructions(dataloaders: dict, dataset_type: str, model: torch.nn.M
             axs[i, 2 * j + 1].axis('off')
     return fig
 
-def show_tsne_latent_space(dataloaders, model, dataset_type, n_iter=500, N=12000, figsize=(10, 6)):
+def pca_tsne(dataloaders, model, dataset_type, n_iter=500, N=12000, figsize=(10, 6)):
     # Get labels
     data = dataloaders[dataset_type]
     labels = data.dataset.labels[:N].numpy()
@@ -68,15 +72,32 @@ def show_tsne_latent_space(dataloaders, model, dataset_type, n_iter=500, N=12000
     data['labels'] = labels.astype(int)
 
     # Run t-SNE
+    print("\nRUNNING PCA...")
+    pca = PCA(n_components=2)
+    pca_results = pca.fit_transform(data.iloc[:, :32])
+    data['pca1'] = pca_results[:, 0]
+    data['pca2'] = pca_results[:, 1]
+    print("\nPCA SUCCESSFULLY FINISHED!")
+
+    # Run t-SNE
     print("\nRUNNING T-SNE...")
     tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=n_iter)
-    tsne_results = tsne.fit_transform(data)
+    tsne_results = tsne.fit_transform(data.iloc[:, :32])
     data['tsne1'] = tsne_results[:, 0]
     data['tsne2'] = tsne_results[:, 1]
     print("\nT-SNE SUCCESSFULLY FINISHED!")
 
     plt.style.use('ggplot')
-    fig = plt.figure(figsize=figsize)
+    fig_pca = plt.figure(figsize=figsize)
+    sns.scatterplot(
+        x="pca1", y="pca2",
+        hue="labels",
+        palette=sns.color_palette("hls", 10),
+        data=data,
+        legend="full",
+        alpha=0.7)
+
+    fig_tsne = plt.figure(figsize=figsize)
     sns.scatterplot(
         x="tsne1", y="tsne2",
         hue="labels",
@@ -84,7 +105,128 @@ def show_tsne_latent_space(dataloaders, model, dataset_type, n_iter=500, N=12000
         data=data,
         legend="full",
         alpha=0.7)
-    return fig
+
+    return fig_pca, fig_tsne
+
+
+def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.linspace(1, 101, 10, dtype=int), n_iter=500, N=12000, figsize=(10, 6)):
+    plt.style.use('ggplot')
+
+    # Get labels
+    data = dataloaders[dataset_type]
+    labels = data.dataset.labels[:N].numpy()
+    print("\nDISTRIBUTION OF LABELS:")
+    pprint(Counter(labels))
+
+    # Get model output
+    print("\nOBTAINING LATENT REPRESENTATIONS...")
+    output = model(data.dataset.dataset[:N])
+    latent_representations = output['z'].detach().numpy()
+    print("\nLATENT REPRESENTATIONS OBTAINED!")
+
+    # Gather in dataframe
+    data = pd.DataFrame(latent_representations)
+    data['labels'] = labels.astype(int)
+
+    # Run t-SNE
+    print("\nRUNNING PCA...")
+    pca = PCA(n_components=2)
+    pca_results = pca.fit_transform(data.iloc[:, :32])
+    data['pca1'] = pca_results[:, 0]
+    data['pca2'] = pca_results[:, 1]
+    print("\nPCA SUCCESSFULLY FINISHED!")
+
+    # Run t-SNE
+    print("\nRUNNING T-SNE...")
+    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=n_iter)
+    tsne_results = tsne.fit_transform(data.iloc[:, :32])
+    data['tsne1'] = tsne_results[:, 0]
+    data['tsne2'] = tsne_results[:, 1]
+    print("\nT-SNE SUCCESSFULLY FINISHED!")
+
+    fig_pca = plt.figure(figsize=figsize)
+    sns.scatterplot(
+        x="pca1", y="pca2",
+        hue="labels",
+        palette=sns.color_palette("hls", 10),
+        data=data,
+        legend="full",
+        alpha=0.7)
+
+    fig_tsne = plt.figure(figsize=figsize)
+    sns.scatterplot(
+        x="tsne1", y="tsne2",
+        hue="labels",
+        palette=sns.color_palette("hls", 10),
+        data=data,
+        legend="full",
+        alpha=0.7)
+
+    print("\nKNN - PCA")
+    results = defaultdict(dict)
+    res_pca = defaultdict(dict)
+    for k_neighbors in K_NEIGHBOURS:
+        knn = KNeighborsClassifier(n_neighbors=k_neighbors)
+        results[k_neighbors] = cross_val_score(knn, data[['pca1', 'pca2']], data['labels'], cv=5)
+    # print mean and std
+    pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+    res_pca['all'] = results
+
+    print("\nKNN - t-SNE")
+    results = defaultdict(dict)
+    res_tsne = defaultdict(dict)
+    for k_neighbors in K_NEIGHBOURS:
+        knn = KNeighborsClassifier(n_neighbors=k_neighbors)
+        results[k_neighbors] = cross_val_score(knn, data[['tsne1', 'tsne2']], data['labels'], cv=5)
+    # print mean and std
+    pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+    res_tsne['all'] = results
+
+    print("\nKNN - 32 latent dim.")
+    results = defaultdict(dict)
+    res_latent = defaultdict(dict)
+    for k_neighbors in K_NEIGHBOURS:
+        knn = KNeighborsClassifier(n_neighbors=k_neighbors)
+        results[k_neighbors] = cross_val_score(knn, data.iloc[:, :32], data['labels'], cv=5)
+    # print mean and std
+    pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+    res_latent['all'] = results
+
+
+    for digit in range(0, 10):
+
+        print(f"\nKNN (DIGIT = {digit}) - PCA")
+        results = defaultdict(dict)
+        for k_neighbors in K_NEIGHBOURS:
+            knn = KNeighborsClassifier(n_neighbors=k_neighbors)
+            results[k_neighbors] = cross_val_score(knn, data[['pca1', 'pca2']], data['labels'], cv=5)
+        # print mean and std
+        pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+        res_pca[digit] = results
+
+        print(f"\nKNN (DIGIT = {digit})- t-SNE")
+        results = defaultdict(dict)
+        for k_neighbors in K_NEIGHBOURS:
+            knn = KNeighborsClassifier(n_neighbors=k_neighbors)
+            results[k_neighbors] = cross_val_score(knn, data[['tsne1', 'tsne2']], data['labels'], cv=5)
+        # print mean and std
+        pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+        res_tsne[digit] = results
+
+        print(f"\nKNN (DIGIT = {digit}) - 32 latent dim.")
+        results = defaultdict(dict)
+        for k_neighbors in K_NEIGHBOURS:
+            knn = KNeighborsClassifier(n_neighbors=k_neighbors)
+            results[k_neighbors] = cross_val_score(knn, data.iloc[:, :32], data['labels'], cv=5)
+        # print mean and std
+        pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+        res_latent[digit] = results
+
+    res_tsne = pd.DataFrame(res_tsne)
+    res_pca = pd.DataFrame(res_pca)
+    res_latent = pd.DataFrame(res_latent)
+    return fig_pca, fig_tsne, res_pca, res_tsne, res_latent
+
 
 def plot_reconstructed_digits(dataloaders: dict, dataset_type: str, model: torch.nn.Module, epoch: int, N=10, figsize=(10, 10), device='cpu', seed=42):
     np.random.seed(seed)
@@ -142,24 +284,54 @@ def make_gif(img_dir, filename, duration=100):
 if __name__ == '__main__':
 
     # Specify experiment name
-    experiment_name = input("Enter experiment name: ")
+    #experiment_name = input("Enter experiment name: ")
+    experiment_name = 'vanilla-1000epochs'
+    N = 5000
 
     # Load original mnist
     mnist_loaders = get_loaders(MNISTDataset, data_path="data", version='original')
     # Load mnist (rotated)
     mnist_rot_loaders = get_loaders(MNISTDataset, data_path="data", version='rotated')
-    
+
     # Load model
     filename = f"vanilla_vae/models/{experiment_name}/best.ckpt"
+    #filename = f"vanilla_vae/models/{experiment_name}/10.ckpt"
     model = VariationalAutoEncoder()
     state_dict = torch.load(filename)
     model.load_state_dict(state_dict)
     model.eval()
 
     for name_, loaders in {'regular': mnist_loaders, 'rotated': mnist_rot_loaders}.items():
+
+        # Run analysis of latent space
+        fig_pca, fig_tsne = pca_tsne(loaders, model, dataset_type='test', N=N, n_iter=1000)
+        fig_pca.suptitle(f"PCA - {name_} MNIST")
+        fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
+        fig_pca.savefig(f"plots/PCA_{name_}.png")
+        fig_tsne.savefig(f"plots/PCA_{name_}.png")
+        fig_pca.show()
+        fig_tsne.show()
+
+    """
+
+    for name_, loaders in {'rotated': mnist_rot_loaders, 'regular': mnist_loaders}.items():
+
+        # Run analysis of latent space
+        fig_pca, fig_tsne, pca, tsne, latent = latent_space_analysis(loaders, model, dataset_type='test', N=N, n_iter=1000)
+        fig_pca.suptitle(f"PCA - {name_} MNIST")
+        fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
+        fig_pca.savefig(f"plots/PCA_{name_}.png")
+        fig_tsne.savefig(f"plots/PCA_{name_}.png")
+        fig_pca.show()
+        fig_tsne.show()
+
+        print(pca)
+        print(tsne)
+        print(latent)
+
         # Get reconstructions on test set
         fig, gt_fig = plot_reconstructed_digits(loaders, 'test', model, N=10, epoch=0) # epoch=0 for getting ground truth image
-        
+
         # Ground truth images
         gt_fig.tight_layout(rect=[0, 0, 1, 0.95])
         gt_fig.suptitle(f"{name_} - ground truth")
@@ -173,16 +345,11 @@ if __name__ == '__main__':
         fig.show()
         
 
-        # t-SNE 
-        fig = show_tsne_latent_space(loaders, model, dataset_type='test', N=5000, n_iter=1000)
-        fig.suptitle(f"t-SNE - {name_} MNIST")
-        plt.savefig(f"plots/tSNE_{name_}.png")
-        fig.show()
-        
 
     # Create a gif og validation reconstructions from training
     make_gif(f"plots/vanilla_vae/{experiment_name}/val_reconstructions", filename="val_reconstructions.gif")
-
+    
+    """
 
 
     # # Check model performance at various epochs

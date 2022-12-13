@@ -33,16 +33,16 @@ class MNISTDataset(Dataset):
 
         return {'data': image, 'label': label}
 
-def get_loaders(dataClass, data_path, version, batch_size=64):
+def get_loaders(dataClass, data_path, version, batch_size=64, shuffle=True):
 
     train_data = dataClass('train', data_path=data_path, version=version)
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=shuffle)
 
     val_data = dataClass('val', data_path=data_path, version=version)
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size=batch_size, shuffle=shuffle)
 
     test_data = dataClass('test', data_path=data_path, version=version)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=shuffle)
 
     return {'train': train_loader, 'val': val_loader, 'test': test_loader}
 

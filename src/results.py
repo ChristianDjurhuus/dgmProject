@@ -82,7 +82,7 @@ def pca_tsne(dataloaders, model, dataset_type, n_iter=500, N=12000, figsize=(10,
 
     # Run t-SNE
     print("\nRUNNING T-SNE...")
-    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=n_iter)
+    tsne = TSNE(n_components=2, verbose=1, perplexity=30, n_iter=n_iter)
     tsne_results = tsne.fit_transform(data.iloc[:, :32])
     data['tsne1'] = tsne_results[:, 0]
     data['tsne2'] = tsne_results[:, 1]
@@ -110,20 +110,36 @@ def pca_tsne(dataloaders, model, dataset_type, n_iter=500, N=12000, figsize=(10,
     return fig_pca, fig_tsne
 
 
-def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.linspace(1, 100, 11, dtype=int), n_iter=500, N=12000, figsize=(10, 6)):
+def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.linspace(1, 100, 11, dtype=int), n_iter=500, N=5000, device=torch.device('cpu'), figsize=(10, 6)):
     plt.style.use('ggplot')
 
-    # Get labels
-    data = dataloaders[dataset_type]
-    labels = data.dataset.labels[:N].numpy()
+    from tqdm import tqdm
+
+    latent_representations = []
+    labels = []
+    print("\nOBTAINING LATENT REPRESENTATIONS...")
+    for batch in tqdm(dataloaders[dataset_type]):
+        output = model(batch['data'].to(device))
+        latent_representations.append(output['qz'].mu.detach().cpu().numpy())
+
+        labels.append(batch['label'])
+
+    latent_representations = np.concatenate(latent_representations)
+    print("\nLATENT REPRESENTATIONS OBTAINED!")
+
     print("\nDISTRIBUTION OF LABELS:")
+    labels = np.concatenate(labels)
     pprint(Counter(labels))
 
+    # Get labels
+    #data = dataloaders[dataset_type]
+    #labels = data.dataset.labels[:N].numpy()
+
     # Get model output
-    print("\nOBTAINING LATENT REPRESENTATIONS...")
-    output = model(data.dataset.dataset[:N])
-    latent_representations = output['z'].detach().numpy()
-    print("\nLATENT REPRESENTATIONS OBTAINED!")
+    #print("\nOBTAINING LATENT REPRESENTATIONS...")
+    #output = model(data.dataset.dataset[:N])
+    #latent_representations = output['qz'].mu.detach().numpy()
+    #print("\nLATENT REPRESENTATIONS OBTAINED!")
 
     # Gather in dataframe
     data = pd.DataFrame(latent_representations)
@@ -152,7 +168,7 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
         palette=sns.color_palette("hls", 10),
         data=data,
         legend="full",
-        alpha=0.7)
+        alpha=0.5)
 
     fig_tsne = plt.figure(figsize=figsize)
     sns.scatterplot(
@@ -161,7 +177,7 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
         palette=sns.color_palette("hls", 10),
         data=data,
         legend="full",
-        alpha=0.7)
+        alpha=0.5)
 
 
     from sklearn.model_selection import KFold
@@ -226,17 +242,18 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
     res_tsne = defaultdict(dict)
     res_latent = defaultdict(dict)
     pca_acc, tsne_acc, latent_acc = [], [], []
+    predictions = pd.DataFrame(predictions)
+
     for train_idx, test_idx in KFold(n_splits=5).split(pd.DataFrame(predictions)):
 
-        pca_acc.append(balanced_accuracy_score(data.iloc[test_idx]['labels'], predictions.iloc[test_idx]['pca']))
-        tsne_acc.append(balanced_accuracy_score(data.iloc[test_idx]['labels'], predictions.iloc[test_idx]['tsne']))
-        latent_acc.append(balanced_accuracy_score(data.iloc[test_idx]['labels'], predictions.iloc[test_idx]['full_latent']))
+        pca_acc.append(balanced_accuracy_score(predictions.iloc[test_idx]['labels'], predictions.iloc[test_idx]['pca']))
+        tsne_acc.append(balanced_accuracy_score(predictions.iloc[test_idx]['labels'], predictions.iloc[test_idx]['tsne']))
+        latent_acc.append(balanced_accuracy_score(predictions.iloc[test_idx]['labels'], predictions.iloc[test_idx]['full_latent']))
 
     res_pca[f'total ({K_pca} neighbors)'] = (np.mean(pca_acc), np.std(pca_acc) / np.sqrt(5))
     res_tsne[f'total ({K_tsne} neighbors)'] = (np.mean(tsne_acc), np.std(tsne_acc) / np.sqrt(5))
     res_latent[f'total ({K_latent} neighbors)'] = (np.mean(latent_acc), np.std(latent_acc) / np.sqrt(5))
 
-    predictions = pd.DataFrame(predictions)
     for digit in range(0, 10):
         predictions_ = predictions[predictions['labels'] == digit]
 
@@ -309,56 +326,59 @@ def make_gif(img_dir, filename, duration=100):
     print(f"Created GIF: {filename}")
     os.chdir(cwd)
 
+def set_seed(value):
+    np.random.seed(value)
+    torch.manual_seed(value)
+
 if __name__ == '__main__':
 
     # Specify experiment name
     model_type = input("Choose model type, 1 for vanilla, 2 for invariant: ")
     model_name = "vanilla_vae" if model_type == "1" else "invariant_vae"
     experiment_name = input("Enter experiment name: ")
-    N = 5000
+
+    N = 50000
+    show = False
+    SEED = 0
+    DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     enc_hidden_dim = 128 if "128" in experiment_name else 32
     dec_hidden_dim = 128
 
     # Load original mnist
-    mnist_loaders = get_loaders(MNISTDataset, data_path="data", version='original')
+    mnist_loaders = get_loaders(MNISTDataset, data_path="data", version='original', shuffle=False)
     # Load mnist (rotated)
-    mnist_rot_loaders = get_loaders(MNISTDataset, data_path="data", version='rotated')
+    mnist_rot_loaders = get_loaders(MNISTDataset, data_path="data", version='rotated', shuffle=False)
 
     # Load model
     filename = f"{model_name}/models/{experiment_name}/best.ckpt"
     model = VariationalAutoEncoder(enc_hidden_dim=enc_hidden_dim, dec_hidden_dim=dec_hidden_dim) if model_type == "1" else VAE(32, 32)
     state_dict = torch.load(filename)
     model.load_state_dict(state_dict)
+    model.to(DEVICE)
     model.eval()
-
-    # for name_, loaders in {'regular': mnist_loaders, 'rotated': mnist_rot_loaders}.items():
-    #
-    #     # Run analysis of latent space
-    #     fig_pca, fig_tsne = pca_tsne(loaders, model, dataset_type='test', N=N, n_iter=1000)
-    #     fig_pca.suptitle(f"PCA - {name_} MNIST")
-    #     fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
-    #     fig_pca.savefig(f"plots/PCA_{name_}.png")
-    #     fig_tsne.savefig(f"plots/PCA_{name_}.png")
-    #     fig_pca.show()
-    #     fig_tsne.show()
 
     loaders_ =  {'regular': mnist_loaders, 'rotated': mnist_rot_loaders} if model_type == '1' else {'regular_invariant': mnist_loaders, 'rotated_invariant': mnist_rot_loaders}
     for name_, loaders in loaders_.items():
+        # Set seed
+        set_seed(SEED)
+        os.makedirs(f"plots/{model_name}/{experiment_name}", exist_ok=True)
+        os.makedirs(f"plots/{model_name}/{experiment_name}/results", exist_ok=True)
 
         # Run analysis of latent space
-        fig_pca, fig_tsne, pca, tsne, latent = latent_space_analysis(loaders, model, dataset_type='test', N=N, n_iter=1000)
+        fig_pca, fig_tsne, pca, tsne, latent = latent_space_analysis(loaders, model, dataset_type='test', N=N, n_iter=1000, device=DEVICE)
         fig_pca.suptitle(f"PCA - {name_} MNIST")
         fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
         fig_pca.savefig(f"plots/{model_name}/{experiment_name}/PCA_{name_}.png")
-        fig_tsne.savefig(f"plots/{model_name}/{experiment_name}/PCA_{name_}.png")
-        fig_pca.show()
-        fig_tsne.show()
+        fig_tsne.savefig(f"plots/{model_name}/{experiment_name}/TSNE_{name_}.png")
+        if show == True:
+            fig_pca.show()
+            fig_tsne.show()
 
         # save the results of the KNN classifier for each digit
-        pca.to_csv(f"KNN_pca_{name_}.csv")
-        tsne.to_csv(f"KNN_tsne_{name_}.csv")
-        latent.to_csv(f"KNN_full_latent{name_}.csv")
+        pca.to_csv(f"plots/{model_name}/{experiment_name}/results/KNN_pca_{name_}.csv")
+        tsne.to_csv(f"plots/{model_name}/{experiment_name}/results/KNN_tsne_{name_}.csv")
+        latent.to_csv(f"plots/{model_name}/{experiment_name}/results/KNN_full_latent_{name_}.csv")
 
         # Get reconstructions on test set
         fig, gt_fig = plot_reconstructed_digits(loaders, 'test', model, N=10, epoch=0)  # epoch=0 for getting ground truth image
@@ -367,18 +387,39 @@ if __name__ == '__main__':
         gt_fig.tight_layout(rect=[0, 0, 1, 0.95])
         gt_fig.suptitle(f"{name_} - ground truth")
         gt_fig.savefig(f"plots/{model_name}/{experiment_name}/ground_truth_{name_}.png")
-        gt_fig.show()
+        if show == True:
+            gt_fig.show()
 
         # Reconstructed images
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         fig.suptitle(f"{name_} - reconstructions")
         fig.savefig(f"plots/{model_name}/{experiment_name}/recon_{name_}.png")
-        fig.show()
+        if show == True:
+            fig.show()
+
+    #import os
+    #os.chdir(r"C:\Users\alber\Desktop\DTU\1_HCAI\DeepGenerativeModelling\project\dgmProject\src")
+    results_regular = pd.read_csv('plots/vanilla_vae/vanilla-v4-128dim/KNN_full_latent_regular.csv')
+    results_rotated = pd.read_csv('plots/vanilla_vae/vanilla-v4-128dim/KNN_full_latent_rotated.csv')
+
+    results_regular['latex'] = np.round(results_regular['mean bal. acc.'], 3).astype(str) + ' pm ' + np.round(results_regular['sem'], 3).astype(str)
+    results_rotated['latex'] = np.round(results_rotated['mean bal. acc.'], 3).astype(str) + ' pm ' + np.round(results_rotated['sem'], 3).astype(str)
+
+
+    results_regular = results_regular.drop(columns={'mean bal. acc.', 'sem'}).set_index('Unnamed: 0').T
+    results_rotated = results_rotated.drop(columns={'mean bal. acc.', 'sem'}).set_index('Unnamed: 0').T
+
+    print(results_regular.T)
+    print(results_rotated.T)
+
+    print(results_regular.to_latex())
+    print(results_rotated.to_latex())
+
+
+
 
     # Create a gif og validation reconstructions from training
-    make_gif(f"plots/{model_name}/{experiment_name}/val_reconstructions", filename="val_reconstructions.gif")
-
-
+    #make_gif(f"plots/{model_name}/{experiment_name}/val_reconstructions", filename="val_reconstructions.gif")
 
     # for name_, loaders in {'regular_invariant': mnist_loaders, 'rotated_invariant': mnist_rot_loaders}.items():
     #     # Get reconstructions on test set

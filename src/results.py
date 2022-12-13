@@ -110,7 +110,7 @@ def pca_tsne(dataloaders, model, dataset_type, n_iter=500, N=12000, figsize=(10,
     return fig_pca, fig_tsne
 
 
-def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.linspace(1, 101, 10, dtype=int), n_iter=500, N=12000, figsize=(10, 6)):
+def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.linspace(1, 100, 11, dtype=int), n_iter=500, N=12000, figsize=(10, 6)):
     plt.style.use('ggplot')
 
     # Get labels
@@ -139,7 +139,7 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
 
     # Run t-SNE
     print("\nRUNNING T-SNE...")
-    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=n_iter)
+    tsne = TSNE(n_components=2, verbose=1, perplexity=50, n_iter=n_iter)
     tsne_results = tsne.fit_transform(data.iloc[:, :32])
     data['tsne1'] = tsne_results[:, 0]
     data['tsne2'] = tsne_results[:, 1]
@@ -163,15 +163,29 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
         legend="full",
         alpha=0.7)
 
+
+    from sklearn.model_selection import KFold
+    from sklearn.metrics import balanced_accuracy_score
+
+
     print("\nKNN - PCA")
+    predictions = defaultdict(dict)
+    predictions['labels'] = data['labels'].values
     results = defaultdict(dict)
     res_pca = defaultdict(dict)
     for k_neighbors in K_NEIGHBOURS:
         knn = KNeighborsClassifier(n_neighbors=k_neighbors)
         results[k_neighbors] = cross_val_score(knn, data[['pca1', 'pca2']], data['labels'], cv=5)
     # print mean and std
-    pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+    results = {key: (val.mean(), val.std()) for key, val in results.items()}
+    pprint(results)
     res_pca['all'] = results
+
+    # Predict labels with KNN on PCA
+    K_pca = sorted(results.items(), key=lambda x: x[1][0], reverse=True)[0][0]
+    knn = KNeighborsClassifier(n_neighbors=K_pca)
+    knn.fit(data[['pca1', 'pca2']], data['labels'])
+    predictions['pca'] = knn.predict(data[['pca1', 'pca2']])
 
     print("\nKNN - t-SNE")
     results = defaultdict(dict)
@@ -180,8 +194,16 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
         knn = KNeighborsClassifier(n_neighbors=k_neighbors)
         results[k_neighbors] = cross_val_score(knn, data[['tsne1', 'tsne2']], data['labels'], cv=5)
     # print mean and std
-    pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+    results = {key: (val.mean(), val.std()) for key, val in results.items()}
+    pprint(results)
     res_tsne['all'] = results
+
+    # Predict labels with KNN on PCA
+    K_tsne = sorted(results.items(), key=lambda x: x[1][0], reverse=True)[0][0]
+    knn = KNeighborsClassifier(n_neighbors=K_tsne)
+    knn.fit(data[['tsne1', 'tsne2']], data['labels'])
+    predictions['tsne'] = knn.predict(data[['tsne1', 'tsne2']])
+
 
     print("\nKNN - 32 latent dim.")
     results = defaultdict(dict)
@@ -190,43 +212,48 @@ def latent_space_analysis(dataloaders, model, dataset_type, K_NEIGHBOURS=np.lins
         knn = KNeighborsClassifier(n_neighbors=k_neighbors)
         results[k_neighbors] = cross_val_score(knn, data.iloc[:, :32], data['labels'], cv=5)
     # print mean and std
-    pprint({key: (val.mean(), val.std()) for key, val in results.items()})
+    results = {key: (val.mean(), val.std()) for key, val in results.items()}
+    pprint(results)
     res_latent['all'] = results
 
+    # Predict labels with KNN on PCA
+    K_latent = sorted(results.items(), key=lambda x: x[1][0], reverse=True)[0][0]
+    knn = KNeighborsClassifier(n_neighbors=K_latent)
+    knn.fit(data.iloc[:, :32], data['labels'])
+    predictions['full_latent'] = knn.predict(data.iloc[:, :32])
 
+    res_pca = defaultdict(dict)
+    res_tsne = defaultdict(dict)
+    res_latent = defaultdict(dict)
+    pca_acc, tsne_acc, latent_acc = [], [], []
+    for train_idx, test_idx in KFold(n_splits=5).split(pd.DataFrame(predictions)):
+
+        pca_acc.append(balanced_accuracy_score(data.iloc[test_idx]['labels'], predictions.iloc[test_idx]['pca']))
+        tsne_acc.append(balanced_accuracy_score(data.iloc[test_idx]['labels'], predictions.iloc[test_idx]['tsne']))
+        latent_acc.append(balanced_accuracy_score(data.iloc[test_idx]['labels'], predictions.iloc[test_idx]['full_latent']))
+
+    res_pca[f'total ({K_pca} neighbors)'] = (np.mean(pca_acc), np.std(pca_acc) / np.sqrt(5))
+    res_tsne[f'total ({K_tsne} neighbors)'] = (np.mean(tsne_acc), np.std(tsne_acc) / np.sqrt(5))
+    res_latent[f'total ({K_latent} neighbors)'] = (np.mean(latent_acc), np.std(latent_acc) / np.sqrt(5))
+
+    predictions = pd.DataFrame(predictions)
     for digit in range(0, 10):
+        predictions_ = predictions[predictions['labels'] == digit]
 
-        print(f"\nKNN (DIGIT = {digit}) - PCA")
-        results = defaultdict(dict)
-        for k_neighbors in K_NEIGHBOURS:
-            knn = KNeighborsClassifier(n_neighbors=k_neighbors)
-            results[k_neighbors] = cross_val_score(knn, data[['pca1', 'pca2']], data['labels'], cv=5)
-        # print mean and std
-        pprint({key: (val.mean(), val.std()) for key, val in results.items()})
-        res_pca[digit] = results
+        pca_acc = []
+        tsne_acc = []
+        latent_acc = []
+        for train_idx, test_idx in KFold(n_splits=5).split(pd.DataFrame(predictions_)):
 
-        print(f"\nKNN (DIGIT = {digit})- t-SNE")
-        results = defaultdict(dict)
-        for k_neighbors in K_NEIGHBOURS:
-            knn = KNeighborsClassifier(n_neighbors=k_neighbors)
-            results[k_neighbors] = cross_val_score(knn, data[['tsne1', 'tsne2']], data['labels'], cv=5)
-        # print mean and std
-        pprint({key: (val.mean(), val.std()) for key, val in results.items()})
-        res_tsne[digit] = results
+            pca_acc.append(balanced_accuracy_score(predictions_.iloc[test_idx]['labels'], predictions_.iloc[test_idx]['pca']))
+            tsne_acc.append(balanced_accuracy_score(predictions_.iloc[test_idx]['labels'], predictions_.iloc[test_idx]['tsne']))
+            latent_acc.append(balanced_accuracy_score(predictions_.iloc[test_idx]['labels'], predictions_.iloc[test_idx]['full_latent']))
 
-        print(f"\nKNN (DIGIT = {digit}) - 32 latent dim.")
-        results = defaultdict(dict)
-        for k_neighbors in K_NEIGHBOURS:
-            knn = KNeighborsClassifier(n_neighbors=k_neighbors)
-            results[k_neighbors] = cross_val_score(knn, data.iloc[:, :32], data['labels'], cv=5)
-        # print mean and std
-        pprint({key: (val.mean(), val.std()) for key, val in results.items()})
-        res_latent[digit] = results
+        res_pca[f'digit{digit}'] = (np.mean(pca_acc), np.std(pca_acc) / np.sqrt(5))
+        res_tsne[f'digit{digit}'] = (np.mean(tsne_acc), np.std(tsne_acc) / np.sqrt(5))
+        res_latent[f'digit{digit}'] = (np.mean(latent_acc), np.std(latent_acc) / np.sqrt(5))
 
-    res_tsne = pd.DataFrame(res_tsne)
-    res_pca = pd.DataFrame(res_pca)
-    res_latent = pd.DataFrame(res_latent)
-    return fig_pca, fig_tsne, res_pca, res_tsne, res_latent
+    return fig_pca, fig_tsne, pd.DataFrame(res_pca, index=['mean bal. acc.', 'sem']).T, pd.DataFrame(res_tsne, index=['mean bal. acc.', 'sem']).T, pd.DataFrame(res_latent, index=['mean bal. acc.', 'sem']).T
 
 
 def plot_reconstructed_digits(dataloaders: dict, dataset_type: str, model: torch.nn.Module, epoch: int, N=10, figsize=(10, 10), device='cpu', seed=42):
@@ -286,8 +313,12 @@ if __name__ == '__main__':
 
     # Specify experiment name
     model_type = input("Choose model type, 1 for vanilla, 2 for invariant: ")
+    model_name = "vanilla_vae" if model_type == "1" else "invariant_vae"
     experiment_name = input("Enter experiment name: ")
     N = 5000
+
+    enc_hidden_dim = 128 if "128" in experiment_name else 32
+    dec_hidden_dim = 128
 
     # Load original mnist
     mnist_loaders = get_loaders(MNISTDataset, data_path="data", version='original')
@@ -295,8 +326,8 @@ if __name__ == '__main__':
     mnist_rot_loaders = get_loaders(MNISTDataset, data_path="data", version='rotated')
 
     # Load model
-    filename = f"vanilla_vae/models/{experiment_name}/best.ckpt" if model_type == "1" else f"invariant_vae/models/{experiment_name}/best.ckpt"
-    model = VariationalAutoEncoder() if model_type == "1" else VAE(32, 32)
+    filename = f"{model_name}/models/{experiment_name}/best.ckpt"
+    model = VariationalAutoEncoder(enc_hidden_dim=enc_hidden_dim, dec_hidden_dim=dec_hidden_dim) if model_type == "1" else VAE(32, 32)
     state_dict = torch.load(filename)
     model.load_state_dict(state_dict)
     model.eval()
@@ -319,15 +350,15 @@ if __name__ == '__main__':
         fig_pca, fig_tsne, pca, tsne, latent = latent_space_analysis(loaders, model, dataset_type='test', N=N, n_iter=1000)
         fig_pca.suptitle(f"PCA - {name_} MNIST")
         fig_tsne.suptitle(f"t-SNE - {name_} MNIST")
-        fig_pca.savefig(f"plots/PCA_{name_}.png")
-        fig_tsne.savefig(f"plots/PCA_{name_}.png")
+        fig_pca.savefig(f"plots/{model_name}/{experiment_name}/PCA_{name_}.png")
+        fig_tsne.savefig(f"plots/{model_name}/{experiment_name}/PCA_{name_}.png")
         fig_pca.show()
         fig_tsne.show()
 
-        # TODO: save the results of the KNN classifier on each digit somehow
-        print(pca)
-        print(tsne)
-        print(latent)
+        # save the results of the KNN classifier for each digit
+        pca.to_csv(f"KNN_pca_{name_}.csv")
+        tsne.to_csv(f"KNN_tsne_{name_}.csv")
+        latent.to_csv(f"KNN_full_latent{name_}.csv")
 
         # Get reconstructions on test set
         fig, gt_fig = plot_reconstructed_digits(loaders, 'test', model, N=10, epoch=0)  # epoch=0 for getting ground truth image
@@ -335,17 +366,17 @@ if __name__ == '__main__':
         # Ground truth images
         gt_fig.tight_layout(rect=[0, 0, 1, 0.95])
         gt_fig.suptitle(f"{name_} - ground truth")
-        gt_fig.savefig(f"plots/ground_truth_{name_}.png")
+        gt_fig.savefig(f"plots/{model_name}/{experiment_name}/ground_truth_{name_}.png")
         gt_fig.show()
 
         # Reconstructed images
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         fig.suptitle(f"{name_} - reconstructions")
-        fig.savefig(f"plots/recon_{name_}.png")
+        fig.savefig(f"plots/{model_name}/{experiment_name}/recon_{name_}.png")
         fig.show()
 
     # Create a gif og validation reconstructions from training
-    make_gif(f"plots/vanilla_vae/{experiment_name}/val_reconstructions", filename="val_reconstructions.gif")
+    make_gif(f"plots/{model_name}/{experiment_name}/val_reconstructions", filename="val_reconstructions.gif")
 
 
 

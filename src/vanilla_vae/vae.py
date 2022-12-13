@@ -154,13 +154,13 @@ class Decoder(torch.nn.Module):
         return x_hat[:, :, 2:30, 2:30]
 
 class VariationalAutoEncoder(torch.nn.Module):
-    def __init__(self, observation_shape=(28,28), z_dim=32):
+    def __init__(self, observation_shape=(28,28), z_dim=32, enc_hidden_dim=32, dec_hidden_dim=128):
         super(VariationalAutoEncoder, self).__init__()
         self.observation_shape = observation_shape
 
         # Setup model components
-        self.encoder = VariationalEncoder(observation_shape, z_dim)
-        self.decoder = Decoder(observation_shape, z_dim)
+        self.encoder = VariationalEncoder(observation_shape, z_dim, hidden_dim=enc_hidden_dim)
+        self.decoder = Decoder(observation_shape, z_dim, hidden_dim=dec_hidden_dim)
         self.register_buffer('prior_params', torch.zeros(torch.Size([1, 2*z_dim]))) # standard gaussian
 
     def posterior(self, x: Tensor):

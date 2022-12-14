@@ -22,6 +22,8 @@ class MNISTDataset(Dataset):
         data = np.loadtxt(f"{data_path}/mnist_{version}/{filename}")
         data = data[:int(len(data) * 0.8), :] if setname == 'train' else data[:int(len(data) * 0.2), :] if setname == 'val' else data
         self.dataset = torch.Tensor(data[:, :-1]).to(torch.float32).bernoulli()
+        if version != 'original':
+            self.dataset = torch.fliplr(self.dataset.view(-1, 28, 28)).view(self.dataset.shape[0], -1)
         self.labels = torch.Tensor(data[:, -1]).to(torch.float32)
 
     def __len__(self):
